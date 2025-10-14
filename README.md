@@ -7,6 +7,9 @@ Locally make a directory 'data' in this main folder and load [https://unioxfordn
 ## Environment
 
 Make a conda env with the provided specification. To run jupityr notebooks, maybe need to run 
+
 '''
+
 conda install -n myocardinal_env ipykernel --update-deps --force-reinstall
+
 '''
