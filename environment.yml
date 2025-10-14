@@ -1,0 +1,8 @@
+name: myocardinal_env
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pandas
+  - numpy
+prefix: /opt/homebrew/Caskroom/miniconda/base/envs/myocardinal_env
