@@ -13,3 +13,6 @@ Make a conda env with the provided specification. To run jupityr notebooks, mayb
 conda install -n myocardinal_env ipykernel --update-deps --force-reinstall
 
 ```
+
+## Motivation 
+📊 Group presentation on Friday (17/10/2025). Your presentation should cover your prediction pipeline, including the methodology, validation results, and a discussion of your findings. Consider the clinical significance of your results and consider how you might present your findings to a clinical or technical audience.
