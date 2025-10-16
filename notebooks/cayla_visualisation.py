@@ -58,6 +58,33 @@ ax.set_zlabel("Z")
 ax.set_title(f"3D Shape of Heart for Sample {sample_idx}")
 plt.show()
 
+sample_idx = 0
+sample = data[sample_idx]
+
+# Coordinates
+x = sample[:, 0]
+y = sample[:, 1]
+z = sample[:, 2]
+
+# Fourth feature as color
+color_feature = sample[:, 3]
+
+# 3D scatter plot
+fig = plt.figure(figsize=(8, 6))
+ax = fig.add_subplot(111, projection='3d')
+sc = ax.scatter(x, y, z, c=color_feature, cmap='viridis', s=1, alpha=0.6)
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_zlabel("Z")
+ax.set_title(f"3D Heart Shape with Feature 4 (Sample {sample_idx})")
+
+# Add colorbar
+cbar = plt.colorbar(sc, ax=ax)
+cbar.set_label("Feature 4")
+
+plt.show()
+
 ######
 # Load tabular data
 # Path to the CSV
