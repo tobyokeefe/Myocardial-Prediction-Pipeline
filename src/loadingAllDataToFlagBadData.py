@@ -55,6 +55,8 @@ print("------------------------------------")
 
 
 """
+below is by far most of the examples where at least one of the frames in a timeseries were corrupted. It does not include those timeseries which were incomplete (i.e. some empty frame(s) at the end) - delibertate, as it should be easy when processing data to ignore frames with no points in them. I did miss a couple corrupted ones though, sorry. BUt most are here.
+
 ['426pMI.npy', '445pMI.npy', '846healthy.npy', '289healthy.npy', '208healthy.npy', '595healthy.npy', '410pMI.npy', '390healthy.npy', '814pMI.npy', '693healthy.npy', '754pMI.npy', '841pMI.npy', '8healthy.npy', '174pMI.npy', '853pMI.npy', '175healthy.npy', '875pMI.npy', '308healthy.npy', '734healthy.npy', '793healthy.npy', '424pMI.npy', '573healthy.npy', '258healthy.npy', '21pMI.npy', '163healthy.npy', '172pMI.npy', '776pMI.npy', '335healthy.npy', '139pMI.npy', '794healthy.npy', '508pMI.npy', '502healthy.npy', '699pMI.npy', '292healthy.npy', '479healthy.npy', '68pMI.npy', '280pMI.npy', '774pMI.npy', '621healthy.npy', '385pMI.npy', '70healthy.npy', '485healthy.npy', '448pMI.npy', '378pMI.npy', '217pMI.npy', '591pMI.npy', '738pMI.npy', '638pMI.npy', '345healthy.npy', '673pMI.npy', '86pMI.npy', '313pMI.npy', '503healthy.npy', '899healthy.npy', '80healthy.npy', '539healthy.npy', '138pMI.npy', '91healthy.npy', '75pMI.npy', '119healthy.npy', '20pMI.npy', '872pMI.npy', '181healthy.npy', '597pMI.npy', '203pMI.npy', '658healthy.npy', '439healthy.npy', '564pMI.npy']
 """
 
