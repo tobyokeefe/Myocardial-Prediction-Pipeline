@@ -13,6 +13,7 @@ from sklearn.metrics import (
 )
 import xgboost as xgb
 from sklearn.model_selection import GridSearchCV
+from sklearn.svm import SVC
 
 
 # === Load and flatten all frames ===
@@ -45,7 +46,7 @@ print("Combined shape:", X_combined.shape)
 
 # === Split into train/test ===
 X_train, X_test, y_train, y_test = train_test_split(
-    X_combined, y, test_size=0.3, stratify=y, random_state=42
+    X_combined, y, test_size=0.1, stratify=y, random_state=42
 )
 
 # === PCA for heart data only ===
@@ -78,26 +79,21 @@ print("Scaled demographic data independently of PCA features.")
 
 # === Define base models ===
 log_reg = LogisticRegression(max_iter=50000, solver='lbfgs', tol=1e-3)
-rf = RandomForestClassifier(
-    n_estimators=300, max_depth=8, random_state=42, class_weight='balanced'
-)
-xgb_model = xgb.XGBClassifier(
-    n_estimators=300, max_depth=6, learning_rate=0.05, subsample=0.8,
-    colsample_bytree=0.8, eval_metric="auc", tree_method="hist", random_state=42
-)
+rf = RandomForestClassifier()
+xgb_model = xgb.XGBClassifier()
 
 
 print("\n=== Tuning Base Models with Grid Search and Cross-Validation ===")
 
 # Logistic Regression grid
-log_reg_params = {'C': [0.1, 1.0, 10.0], 'penalty': ['l2'], 'solver': ['lbfgs']}
+log_reg_params = {'C': [0.01, 0.1, 0.5, 1.0, 10.0], 'penalty': ['l2'], 'solver': ['lbfgs']}
 log_search = GridSearchCV(log_reg, log_reg_params, cv=5, scoring='roc_auc', n_jobs=-1)
 log_search.fit(X_train_final, y_train)
 log_reg = log_search.best_estimator_
 print("Best Logistic Regression params:", log_search.best_params_)
 
 # Random Forest grid
-rf_params = {'n_estimators': [200, 300, 400], 'max_depth': [6, 8, 10], 'min_samples_split': [2, 4]}
+rf_params = {'n_estimators': [200, 300, 400, 600], 'max_depth': [4, 6, 8, 10], 'min_samples_split': [2, 4, 6]}
 rf_search = GridSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_jobs=-1)
 rf_search.fit(X_train_final, y_train)
 rf = rf_search.best_estimator_
@@ -105,10 +101,10 @@ print("Best Random Forest params:", rf_search.best_params_)
 
 # XGBoost grid
 xgb_params = {
-    'n_estimators': [200, 300, 400],
-    'max_depth': [4, 6, 8],
-    'learning_rate': [0.03, 0.05, 0.1],
-    'subsample': [0.8, 1.0],
+    'n_estimators': [10, 20, 50, 100, 200],
+    'max_depth': [4, 6, 8, 10, 12],
+    'learning_rate': [0.001, 0.01, 0.03, 0.05, 0.1],
+    'subsample': [0.6, 0.8, 1.0],
     'colsample_bytree': [0.8, 1.0]
 }
 xgb_search = GridSearchCV(xgb_model, xgb_params, cv=5, scoring='roc_auc', n_jobs=-1, verbose=2)

@@ -96,9 +96,10 @@ print(demo_df.head())
 
 
 # Extract demographic numeric features
-demo_features = ['age', 'BMI', 'height', 'weight', 'diastolic_BP', 'systolic_BP']
+demo_df['sex'] = demo_df['sex'].astype(int)
+demo_features = ['age', 'BMI', 'height', 'weight', 'diastolic_BP', 'systolic_BP', 'sex']
+demo_df['height'] = demo_df['height']/100
 X_demo = demo_df[demo_features].values
-X_demo['height'] = X_demo['Height']/100
 #scaler = StandardScaler()
 #X_demo = scaler.fit_transform(X_demo)
 
