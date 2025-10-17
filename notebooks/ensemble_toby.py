@@ -2,23 +2,42 @@ import numpy as np
 import pandas as pd
 import glob, os
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, confusion_matrix,
     precision_score, recall_score, f1_score, classification_report, RocCurveDisplay
 )
 import xgboost as xgb
-from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
+from scipy.stats import uniform, randint
 
 
 # === Load and flatten all frames ===
 shape_dir = "/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/training_data/mixed_samples"
 files = sorted(glob.glob(os.path.join(shape_dir, "*.npy")))
+
+# === Remove known corrupted samples ===
+corrupted_files = [
+    '426pMI.npy', '445pMI.npy', '846healthy.npy', '289healthy.npy', '208healthy.npy', '595healthy.npy',
+    '410pMI.npy', '390healthy.npy', '814pMI.npy', '693healthy.npy', '754pMI.npy', '841pMI.npy',
+    '8healthy.npy', '174pMI.npy', '853pMI.npy', '175healthy.npy', '875pMI.npy', '308healthy.npy',
+    '734healthy.npy', '793healthy.npy', '424pMI.npy', '573healthy.npy', '258healthy.npy', '21pMI.npy',
+    '163healthy.npy', '172pMI.npy', '776pMI.npy', '335healthy.npy', '139pMI.npy', '794healthy.npy',
+    '508pMI.npy', '502healthy.npy', '699pMI.npy', '292healthy.npy', '479healthy.npy', '68pMI.npy',
+    '280pMI.npy', '774pMI.npy', '621healthy.npy', '385pMI.npy', '70healthy.npy', '485healthy.npy',
+    '448pMI.npy', '378pMI.npy', '217pMI.npy', '591pMI.npy', '738pMI.npy', '638pMI.npy', '345healthy.npy',
+    '673pMI.npy', '86pMI.npy', '313pMI.npy', '503healthy.npy', '899healthy.npy', '80healthy.npy',
+    '539healthy.npy', '138pMI.npy', '91healthy.npy', '75pMI.npy', '119healthy.npy', '20pMI.npy',
+    '872pMI.npy', '181healthy.npy', '597pMI.npy', '203pMI.npy', '658healthy.npy', '439healthy.npy', '564pMI.npy'
+]
+
+# Filter out corrupted files
+files = [f for f in files if os.path.basename(f) not in corrupted_files]
+print(f"Removed {len(corrupted_files)} corrupted samples. Remaining valid samples: {len(files)}")
 
 heart_samples = [np.load(f) for f in files]  # each shape (10, 18000, 4)
 heart_samples = np.array(heart_samples)
@@ -33,49 +52,30 @@ print("Flattened heart shape:", heart_flat.shape)
 demo_df = pd.read_csv("/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/training_data/mixed_demographics.csv")
 demo_df["height"] = demo_df["height"] / 100  # convert cm to m
 
-# Include 'sex' column as numeric (convert True/False to 1/0)
-demo_df['sex'] = demo_df['sex'].astype(int)
+# Include 'sex' column as numeric (convert True/False to 1/0, where True = Male)
+demo_df['sex'] = demo_df['sex'].apply(lambda x: 1 if x is True else 0)
 demo_features = ['age', 'BMI', 'height', 'weight', 'diastolic_BP', 'systolic_BP', 'sex']
 X_demo = demo_df[demo_features].values
 y = demo_df['MI'].map({'pMI': 1, 'healthy': 0}).values
-print("Included 'sex' as a demographic feature (0=Male, 1=Female)")
-
-# Combine
-X_combined = np.hstack([heart_flat, X_demo])
-print("Combined shape:", X_combined.shape)
-
-# === Split into train/test ===
-X_train, X_test, y_train, y_test = train_test_split(
-    X_combined, y, test_size=0.1, stratify=y, random_state=42
-)
+print("Included 'sex' as a demographic feature (1=Male, 0=Female)")
 
 # === PCA for heart data only ===
 num_spatial_features = heart_flat.shape[1]
 num_demo_features = X_demo.shape[1]
 
-X_train_spatial = X_train[:, :num_spatial_features]
-X_train_demo = X_train[:, num_spatial_features:]
-X_test_spatial = X_test[:, :num_spatial_features]
-X_test_demo = X_test[:, num_spatial_features:]
-
 scaler = StandardScaler()
-X_train_spatial_scaled = scaler.fit_transform(X_train_spatial)
-X_test_spatial_scaled = scaler.transform(X_test_spatial)
+heart_scaled = scaler.fit_transform(heart_flat)
 
 pca = PCA(n_components=50)
-X_train_spatial_pca = pca.fit_transform(X_train_spatial_scaled)
-X_test_spatial_pca = pca.transform(X_test_spatial_scaled)
+heart_pca = pca.fit_transform(heart_scaled)
 
-# --- Scale demographic data independently ---
+# Scale demographics
 demo_scaler = StandardScaler()
-X_train_demo_scaled = demo_scaler.fit_transform(X_train_demo)
-X_test_demo_scaled = demo_scaler.transform(X_test_demo)
+X_demo_scaled = demo_scaler.fit_transform(X_demo)
 
-# Combine PCA (already standardized) with scaled demographics
-X_train_final = np.hstack([X_train_spatial_pca, X_train_demo_scaled])
-X_test_final = np.hstack([X_test_spatial_pca, X_test_demo_scaled])
-print("Final feature shapes:", X_train_final.shape, X_test_final.shape)
-print("Scaled demographic data independently of PCA features.")
+# Combine final features
+X_final = np.hstack([heart_pca, X_demo_scaled])
+print("Final training data shape:", X_final.shape)
 
 # === Define base models ===
 log_reg = LogisticRegression(max_iter=50000, solver='lbfgs', tol=1e-3)
@@ -83,112 +83,122 @@ rf = RandomForestClassifier()
 xgb_model = xgb.XGBClassifier()
 
 
-print("\n=== Tuning Base Models with Grid Search and Cross-Validation ===")
+print("\n=== Tuning Base Models with Randomized Search and Cross-Validation ===")
 
-# Logistic Regression grid
-log_reg_params = {'C': [0.01, 0.1, 0.5, 1.0, 10.0], 'penalty': ['l2'], 'solver': ['lbfgs']}
-log_search = GridSearchCV(log_reg, log_reg_params, cv=5, scoring='roc_auc', n_jobs=-1)
-log_search.fit(X_train_final, y_train)
-log_reg = log_search.best_estimator_
-print("Best Logistic Regression params:", log_search.best_params_)
 
-# Random Forest grid
-rf_params = {'n_estimators': [200, 300, 400, 600], 'max_depth': [4, 6, 8, 10], 'min_samples_split': [2, 4, 6]}
-rf_search = GridSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_jobs=-1)
-rf_search.fit(X_train_final, y_train)
+# Random Forest random search
+rf_params = {'n_estimators': randint(100, 600), 'max_depth': randint(3, 12), 'min_samples_split': randint(2, 6)}
+rf_search = RandomizedSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_iter=500, n_jobs=-1, random_state=42)
+rf_search.fit(X_final, y)
 rf = rf_search.best_estimator_
 print("Best Random Forest params:", rf_search.best_params_)
 
-# XGBoost grid
+# XGBoost random search
 xgb_params = {
-    'n_estimators': [10, 20, 50, 100, 200],
-    'max_depth': [4, 6, 8, 10, 12],
-    'learning_rate': [0.001, 0.01, 0.03, 0.05, 0.1],
-    'subsample': [0.6, 0.8, 1.0],
-    'colsample_bytree': [0.8, 1.0]
+    'n_estimators': randint(50, 500),
+    'max_depth': randint(3, 12),
+    'learning_rate': uniform(0.01, 0.1),
+    'subsample': uniform(0.6, 0.4),
+    'colsample_bytree': uniform(0.6, 0.4)
 }
-xgb_search = GridSearchCV(xgb_model, xgb_params, cv=5, scoring='roc_auc', n_jobs=-1, verbose=2)
-xgb_search.fit(X_train_final, y_train)
+xgb_search = RandomizedSearchCV(xgb_model, xgb_params, cv=5, scoring='roc_auc', n_iter=500, n_jobs=-1, verbose=2, random_state=42)
+xgb_search.fit(X_final, y)
 xgb_model = xgb_search.best_estimator_
 print("Best XGBoost params:", xgb_search.best_params_)
 
-# --- Evaluate individual models before combining ---
-from sklearn.metrics import classification_report
-print("\n=== Evaluating Individual Models ===")
-
-# Logistic Regression
-y_pred_prob_lr = log_reg.predict_proba(X_test_final)[:, 1]
-y_pred_lr = (y_pred_prob_lr > 0.5).astype(int)
-print("\n--- Logistic Regression ---")
-print(f"Accuracy: {accuracy_score(y_test, y_pred_lr):.4f}")
-print(f"AUC: {roc_auc_score(y_test, y_pred_prob_lr):.4f}")
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_lr))
-print("Classification Report:\n", classification_report(y_test, y_pred_lr, target_names=['Healthy', 'pMI']))
-
-# Random Forest
-y_pred_prob_rf = rf.predict_proba(X_test_final)[:, 1]
-y_pred_rf = (y_pred_prob_rf > 0.5).astype(int)
-print("\n--- Random Forest ---")
-print(f"Accuracy: {accuracy_score(y_test, y_pred_rf):.4f}")
-print(f"AUC: {roc_auc_score(y_test, y_pred_prob_rf):.4f}")
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_rf))
-print("Classification Report:\n", classification_report(y_test, y_pred_rf, target_names=['Healthy', 'pMI']))
-
-# XGBoost
-y_pred_prob_xgb = xgb_model.predict_proba(X_test_final)[:, 1]
-y_pred_xgb = (y_pred_prob_xgb > 0.5).astype(int)
-print("\n--- XGBoost ---")
-print(f"Accuracy: {accuracy_score(y_test, y_pred_xgb):.4f}")
-print(f"AUC: {roc_auc_score(y_test, y_pred_prob_xgb):.4f}")
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_xgb))
-print("Classification Report:\n", classification_report(y_test, y_pred_xgb, target_names=['Healthy', 'pMI']))
-
 print("\nUsing optimized models for ensemble...")
 
-# === Ensemble (soft voting) ===
-ensemble = VotingClassifier(
-    estimators=[('lr', log_reg), ('rf', rf), ('xgb', xgb_model)],
-    voting='soft',  # uses predicted probabilities
-    weights=[1, 2, 2]  # weight tree models slightly higher
+# === Stacking Ensemble ===
+stacked_model = StackingClassifier(
+    estimators=[
+        ('rf', rf),
+        ('xgb', xgb_model)
+        ('lr', log_reg)
+    ],
+    final_estimator=LogisticRegression(max_iter=5000, solver='lbfgs'),
+    cv=5,
+    n_jobs=-1
 )
 
-print("\n=== Training Ensemble (LogReg + RF + XGB) ===")
-ensemble.fit(X_train_final, y_train)
+print("\n=== Training Stacking Ensemble (RF + XGB, Meta LR) on Full Dataset ===")
+stacked_model.fit(X_final, y)
 
-# --- Predictions ---
-y_pred_prob = ensemble.predict_proba(X_test_final)[:, 1]
-y_pred = (y_pred_prob > 0.5).astype(int)
+# === Load and predict on new unseen data ===
+new_data_dir = "/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/new_test_data"
+new_files = sorted(glob.glob(os.path.join(new_data_dir, "*.npy")))
 
-# --- Evaluation ---
-acc = accuracy_score(y_test, y_pred)
-auc = roc_auc_score(y_test, y_pred_prob)
-cm = confusion_matrix(y_test, y_pred)
-prec = precision_score(y_test, y_pred)
-rec = recall_score(y_test, y_pred)
-f1 = f1_score(y_test, y_pred)
+new_samples = [np.load(f) for f in new_files]
+new_samples = np.array(new_samples)
+print("New test samples shape:", new_samples.shape)
 
-print("\n=== Ensemble Diagnostics ===")
-print(f"Accuracy:  {acc:.4f}")
-print(f"Precision: {prec:.4f}")
-print(f"Recall:    {rec:.4f}")
-print(f"F1-score:  {f1:.4f}")
-print(f"AUC:       {auc:.4f}")
-print("Confusion matrix:\n", cm)
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred, target_names=['Healthy', 'pMI']))
+# === Filter bad spatial frames using KMeans clustering ===
+from sklearn.cluster import KMeans
+import seaborn as sns
 
-# --- ROC Curve ---
-RocCurveDisplay.from_predictions(y_test, y_pred_prob)
-plt.title("ROC Curve — Ensemble (LogReg + RF + XGB)")
+print("\n=== Running KMeans to filter corrupted spatial frames ===")
+
+heart_col = new_samples[..., :4]  # keep spatial + intensity dimension if available
+X_reshaped = heart_col.reshape(-1, 18000, 4)
+print("Reshaped frames:", X_reshaped.shape)
+
+# Flatten frames for clustering
+X_flat = X_reshaped.reshape(len(X_reshaped), -1)
+print("Flattened frame shape:", X_flat.shape)
+
+# Standardize before clustering
+scaler_km = StandardScaler()
+X_scaled = scaler_km.fit_transform(X_flat)
+
+# Run KMeans to find 2 clusters (good vs. bad)
+kmeans = KMeans(n_clusters=2, random_state=42)
+kmeans.fit(X_scaled)
+labels = kmeans.labels_
+
+# Visualize distribution (saved to file for non-interactive environments)
+plt.figure(figsize=(6, 4))
+sns.countplot(x=labels)
+plt.title("Cluster Distribution for New Frames (0 = bad, 1 = good)")
 plt.tight_layout()
-plt.savefig("ensemble_roc.png")
-plt.show()
+plt.savefig("kmeans_cluster_distribution.png")
+plt.close()
+print("Cluster distribution plot saved to 'kmeans_cluster_distribution.png'")
 
-# --- Feature importance (XGBoost only) ---
-xgb_fitted = ensemble.named_estimators_['xgb']  # retrieve trained XGB model
-plt.figure(figsize=(10, 6))
-xgb.plot_importance(xgb_fitted, importance_type='gain', max_num_features=15)
-plt.title("Top 15 Feature Importances (XGBoost component)")
-plt.tight_layout()
-plt.savefig("ensemble_xgb_importance.png")
-plt.show()
+# Separate cluster indices
+cluster_0_idx = np.where(labels == 0)[0]
+cluster_1_idx = np.where(labels == 1)[0]
+print(f"Cluster 0 (bad frames): {len(cluster_0_idx)} | Cluster 1 (good frames): {len(cluster_1_idx)}")
+
+# Keep only good frames (cluster 1)
+X_good_frames = X_scaled[cluster_1_idx]
+print("Remaining good frames shape:", X_good_frames.shape)
+
+# Reshape good frames back to subject structure if possible
+good_frame_count = X_good_frames.shape[0] // 10
+X_good_final = X_good_frames[:good_frame_count * 10].reshape(good_frame_count, -1)
+print("Filtered new data shape for model input:", X_good_final.shape)
+
+# Replace new_flat with filtered data before PCA
+new_flat = X_good_final
+
+# Load new demographics
+new_demo_df = pd.read_csv("")
+new_demo_df["height"] = new_demo_df["height"] / 100
+new_demo_df["sex"] = new_demo_df["sex"].astype(int)
+new_demo_features = ['age', 'BMI', 'height', 'weight', 'diastolic_BP', 'systolic_BP', 'sex']
+X_new_demo = new_demo_df[new_demo_features].values
+
+# Apply the same scalers and PCA
+new_spatial_scaled = scaler.transform(new_flat)
+new_spatial_pca = pca.transform(new_spatial_scaled)
+new_demo_scaled = demo_scaler.transform(X_new_demo)
+X_new_final = np.hstack([new_spatial_pca, new_demo_scaled])
+
+# Predict with stacked model
+y_new_prob = stacked_model.predict_proba(X_new_final)[:, 1]
+y_new_pred = (y_new_prob > 0.5).astype(int)
+
+# Save predictions
+new_demo_df["Predicted_MI"] = y_new_pred
+new_demo_df["Predicted_Prob"] = y_new_prob
+new_demo_df.to_csv("ensemble_predictions_new_data.csv", index=False)
+print("\nPredictions saved to ensemble_predictions_new_data.csv")
