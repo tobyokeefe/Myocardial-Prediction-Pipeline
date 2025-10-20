@@ -21,24 +21,54 @@ from sklearn.ensemble import StackingClassifier
 shape_dir = "/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/training_data/mixed_samples"
 files = sorted(glob.glob(os.path.join(shape_dir, "*.npy")))
 
-# === Remove known corrupted samples ===
-corrupted_files = [
-    '426pMI.npy', '445pMI.npy', '846healthy.npy', '289healthy.npy', '208healthy.npy', '595healthy.npy',
-    '410pMI.npy', '390healthy.npy', '814pMI.npy', '693healthy.npy', '754pMI.npy', '841pMI.npy',
-    '8healthy.npy', '174pMI.npy', '853pMI.npy', '175healthy.npy', '875pMI.npy', '308healthy.npy',
-    '734healthy.npy', '793healthy.npy', '424pMI.npy', '573healthy.npy', '258healthy.npy', '21pMI.npy',
-    '163healthy.npy', '172pMI.npy', '776pMI.npy', '335healthy.npy', '139pMI.npy', '794healthy.npy',
-    '508pMI.npy', '502healthy.npy', '699pMI.npy', '292healthy.npy', '479healthy.npy', '68pMI.npy',
-    '280pMI.npy', '774pMI.npy', '621healthy.npy', '385pMI.npy', '70healthy.npy', '485healthy.npy',
-    '448pMI.npy', '378pMI.npy', '217pMI.npy', '591pMI.npy', '738pMI.npy', '638pMI.npy', '345healthy.npy',
-    '673pMI.npy', '86pMI.npy', '313pMI.npy', '503healthy.npy', '899healthy.npy', '80healthy.npy',
-    '539healthy.npy', '138pMI.npy', '91healthy.npy', '75pMI.npy', '119healthy.npy', '20pMI.npy',
-    '872pMI.npy', '181healthy.npy', '597pMI.npy', '203pMI.npy', '658healthy.npy', '439healthy.npy', '564pMI.npy'
-]
 
-# Filter out corrupted files
-files = [f for f in files if os.path.basename(f) not in corrupted_files]
-print(f"Removed {len(corrupted_files)} corrupted samples. Remaining valid samples: {len(files)}")
+# === Filter corrupted samples automatically using KMeans clustering ===
+from sklearn.cluster import KMeans
+import seaborn as sns
+
+print("\n=== Running KMeans to identify corrupted heart samples ===")
+
+heart_col = [np.load(f)[..., :4] for f in files]
+heart_col = np.array(heart_col)  # (n_subjects, 10, 18000, 4)
+X_reshaped = heart_col.reshape(-1, 18000, 4)
+print("Reshaped frames for KMeans:", X_reshaped.shape)
+
+# Flatten for clustering
+X_flat = X_reshaped.reshape(len(X_reshaped), -1)
+print("Flattened frame shape:", X_flat.shape)
+
+# Standardize for clustering
+scaler_km = StandardScaler()
+X_scaled = scaler_km.fit_transform(X_flat)
+
+# Run KMeans clustering (2 clusters: good vs bad)
+kmeans = KMeans(n_clusters=2, random_state=42)
+kmeans.fit(X_scaled)
+labels = kmeans.labels_
+
+# Visualize and save distribution
+plt.figure(figsize=(6, 4))
+sns.countplot(x=labels)
+plt.title("KMeans Cluster Distribution (0 = bad, 1 = good)")
+plt.tight_layout()
+plt.savefig("kmeans_cluster_distribution_training.png")
+plt.close()
+print("KMeans cluster distribution plot saved as 'kmeans_cluster_distribution_training.png'")
+
+# Identify and filter out bad cluster (0)
+cluster_0_idx = np.where(labels == 0)[0]
+cluster_1_idx = np.where(labels == 1)[0]
+print(f"Cluster 0 (bad): {len(cluster_0_idx)} frames | Cluster 1 (good): {len(cluster_1_idx)} frames")
+
+# Map frame indices back to subjects and keep only subjects whose majority of frames are in the good cluster
+frame_labels_per_subject = labels.reshape(len(files), 10)
+good_subject_mask = (frame_labels_per_subject.sum(axis=1) > 5)
+valid_indices = np.where(good_subject_mask)[0]
+print(f"Keeping {len(valid_indices)} good subjects out of {len(files)} total")
+
+# Filter to keep only good subjects
+files = [files[i] for i in valid_indices]
+print("Filtered dataset size after KMeans:", len(files))
 
 heart_samples = [np.load(f) for f in files]  # each shape (10, 18000, 4)
 heart_samples = np.array(heart_samples)

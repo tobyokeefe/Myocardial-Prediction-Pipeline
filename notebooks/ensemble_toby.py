@@ -88,7 +88,7 @@ print("\n=== Tuning Base Models with Randomized Search and Cross-Validation ==="
 
 # Random Forest random search
 rf_params = {'n_estimators': randint(100, 600), 'max_depth': randint(3, 12), 'min_samples_split': randint(2, 6)}
-rf_search = RandomizedSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_iter=500, n_jobs=-1, random_state=42)
+rf_search = RandomizedSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_iter=200, n_jobs=-1, random_state=42)
 rf_search.fit(X_final, y)
 rf = rf_search.best_estimator_
 print("Best Random Forest params:", rf_search.best_params_)
@@ -101,7 +101,7 @@ xgb_params = {
     'subsample': uniform(0.6, 0.4),
     'colsample_bytree': uniform(0.6, 0.4)
 }
-xgb_search = RandomizedSearchCV(xgb_model, xgb_params, cv=5, scoring='roc_auc', n_iter=500, n_jobs=-1, verbose=2, random_state=42)
+xgb_search = RandomizedSearchCV(xgb_model, xgb_params, cv=5, scoring='roc_auc', n_iter=200, n_jobs=-1, verbose=2, random_state=42)
 xgb_search.fit(X_final, y)
 xgb_model = xgb_search.best_estimator_
 print("Best XGBoost params:", xgb_search.best_params_)
@@ -112,8 +112,7 @@ print("\nUsing optimized models for ensemble...")
 stacked_model = StackingClassifier(
     estimators=[
         ('rf', rf),
-        ('xgb', xgb_model)
-        ('lr', log_reg)
+        ('xgb', xgb_model),
     ],
     final_estimator=LogisticRegression(max_iter=5000, solver='lbfgs'),
     cv=5,
@@ -124,73 +123,39 @@ print("\n=== Training Stacking Ensemble (RF + XGB, Meta LR) on Full Dataset ==="
 stacked_model.fit(X_final, y)
 
 # === Load and predict on new unseen data ===
-new_data_dir = "/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/new_test_data"
+new_data_dir = "/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/test_samples/test_samples"
 new_files = sorted(glob.glob(os.path.join(new_data_dir, "*.npy")))
 
 new_samples = [np.load(f) for f in new_files]
 new_samples = np.array(new_samples)
 print("New test samples shape:", new_samples.shape)
 
-# === Filter bad spatial frames using KMeans clustering ===
-from sklearn.cluster import KMeans
-import seaborn as sns
-
-print("\n=== Running KMeans to filter corrupted spatial frames ===")
-
-heart_col = new_samples[..., :4]  # keep spatial + intensity dimension if available
-X_reshaped = heart_col.reshape(-1, 18000, 4)
-print("Reshaped frames:", X_reshaped.shape)
-
-# Flatten frames for clustering
-X_flat = X_reshaped.reshape(len(X_reshaped), -1)
-print("Flattened frame shape:", X_flat.shape)
-
-# Standardize before clustering
-scaler_km = StandardScaler()
-X_scaled = scaler_km.fit_transform(X_flat)
-
-# Run KMeans to find 2 clusters (good vs. bad)
-kmeans = KMeans(n_clusters=2, random_state=42)
-kmeans.fit(X_scaled)
-labels = kmeans.labels_
-
-# Visualize distribution (saved to file for non-interactive environments)
-plt.figure(figsize=(6, 4))
-sns.countplot(x=labels)
-plt.title("Cluster Distribution for New Frames (0 = bad, 1 = good)")
-plt.tight_layout()
-plt.savefig("kmeans_cluster_distribution.png")
-plt.close()
-print("Cluster distribution plot saved to 'kmeans_cluster_distribution.png'")
-
-# Separate cluster indices
-cluster_0_idx = np.where(labels == 0)[0]
-cluster_1_idx = np.where(labels == 1)[0]
-print(f"Cluster 0 (bad frames): {len(cluster_0_idx)} | Cluster 1 (good frames): {len(cluster_1_idx)}")
-
-# Keep only good frames (cluster 1)
-X_good_frames = X_scaled[cluster_1_idx]
-print("Remaining good frames shape:", X_good_frames.shape)
-
-# Reshape good frames back to subject structure if possible
-good_frame_count = X_good_frames.shape[0] // 10
-X_good_final = X_good_frames[:good_frame_count * 10].reshape(good_frame_count, -1)
-print("Filtered new data shape for model input:", X_good_final.shape)
-
-# Replace new_flat with filtered data before PCA
-new_flat = X_good_final
+# === Prepare new spatial data for model input (no outlier filtering) ===
+heart_col = new_samples[..., :3]
+new_flat = heart_col.reshape(len(new_samples), -1)
+print("New flattened data shape for model input:", new_flat.shape)
 
 # Load new demographics
-new_demo_df = pd.read_csv("")
+new_demo_df = pd.read_csv("/Users/tobyokeefe/git/Myocardial-Prediction-Pipeline/data/test_samples/test.csv")
 new_demo_df["height"] = new_demo_df["height"] / 100
 new_demo_df["sex"] = new_demo_df["sex"].astype(int)
 new_demo_features = ['age', 'BMI', 'height', 'weight', 'diastolic_BP', 'systolic_BP', 'sex']
 X_new_demo = new_demo_df[new_demo_features].values
 
-# Apply the same scalers and PCA
-new_spatial_scaled = scaler.transform(new_flat)
+
+# Truncate to match PCA input feature size from training
+expected_pca_features = 499200
+if new_flat.shape[1] > expected_pca_features:
+    print(f"Truncating new_flat from {new_flat.shape[1]} to {expected_pca_features} features to match PCA input size.")
+    new_flat = new_flat[:, :expected_pca_features]
+elif new_flat.shape[1] < expected_pca_features:
+    raise ValueError(f"new_flat has fewer features ({new_flat.shape[1]}) than PCA expects ({expected_pca_features}). Check preprocessing steps.")
+
+scaler_new = StandardScaler()
+new_spatial_scaled = scaler_new.fit_transform(new_flat)
 new_spatial_pca = pca.transform(new_spatial_scaled)
-new_demo_scaled = demo_scaler.transform(X_new_demo)
+scaler_new2 = StandardScaler()
+new_demo_scaled = scaler_new2.fit_transform(X_new_demo)
 X_new_final = np.hstack([new_spatial_pca, new_demo_scaled])
 
 # Predict with stacked model
@@ -201,4 +166,11 @@ y_new_pred = (y_new_prob > 0.5).astype(int)
 new_demo_df["Predicted_MI"] = y_new_pred
 new_demo_df["Predicted_Prob"] = y_new_prob
 new_demo_df.to_csv("ensemble_predictions_new_data.csv", index=False)
+
+# Extract only the Predicted_MI column
+predicted_mi = new_demo_df[["Predicted_MI"]]
+
+# Save to a new CSV file
+predicted_mi.to_csv("predicted_MI_only.csv", index=False)
+
 print("\nPredictions saved to ensemble_predictions_new_data.csv")
